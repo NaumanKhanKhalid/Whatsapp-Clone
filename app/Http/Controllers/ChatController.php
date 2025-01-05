@@ -7,26 +7,33 @@ use App\Models\Message;
 use App\Events\MessageSent;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 
 class ChatController extends Controller
 {
+
+    public function getAllUsers()
+    {
+        $users = User::where('id', '!=', Auth::user()->id)->get();
+        return response()->json($users);
+    }
     public function chat(Request $request, $id = null)
     {
-
         $selectedUser = null;
-
         $messages = [];
 
         if ($id) {
             $selectedUser = User::find($id);
             if ($selectedUser) {
-                $messages = $this->getMessages($selectedUser)->map(function ($message) {
+                // Get the most recent messages (last 10 messages)
+                $messages = $this->getMessages($selectedUser, $request->query('page', 1), 10)->map(function ($message) {
                     return [
                         'sender_id' => $message->sender_id,
                         'receiver_id' => $message->receiver_id,
                         'message' => $message->message,
+                        'read_at' => $message->read_at,
                         'created_at' => $message->created_at->diffForHumans(),
                     ];
                 });
@@ -43,7 +50,7 @@ class ChatController extends Controller
         return view('chat', compact('selectedUser', 'messages'));
     }
 
-    protected function getMessages($selectedUser)
+    protected function getMessages($selectedUser, $page = 1, $perPage = 10)
     {
         if ($selectedUser) {
             return Message::where(function ($query) use ($selectedUser) {
@@ -54,10 +61,13 @@ class ChatController extends Controller
                     $query->where('sender_id', $selectedUser->id)
                         ->where('receiver_id', Auth::id());
                 })
-                ->get();
+                ->orderBy('created_at', 'desc') // Order by most recent first
+                ->paginate($perPage, ['*'], 'page', $page);
         }
+
         return collect();
     }
+
 
     public function sendMessage(Request $request)
     {
@@ -80,8 +90,29 @@ class ChatController extends Controller
                 'sender_id' => $message->sender_id,
                 'receiver_id' => $message->receiver_id,
                 'message' => $message->message,
+
                 'created_at' => $message->created_at->diffForHumans(),
             ],
         ]);
+    }
+
+    public function updateLastSeen($id)
+    {
+        $user = User::find($id);
+        if ($user) {
+            $user->last_seen = Carbon::now();
+            $user->save();
+            return response()->json(['message' => 'Last seen updated successfully.']);
+        }
+        return response()->json(['error' => 'User not found.'], 404);
+    }
+
+    public function markAsRead($userId)
+    {
+        Message::where('receiver_id', Auth::id())
+            ->where('sender_id', $userId)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+        return response()->json(['status' => 'success']);
     }
 }

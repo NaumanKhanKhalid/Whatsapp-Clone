@@ -16,3 +16,6 @@ Route::get('/login', function () {
 
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 Route::post('/messages/send', [ChatController::class, 'sendMessage'])->name('messages.send');
+Route::get('/users', [ChatController::class, 'getAllUsers']);
+Route::post('/users/{id}/update-last-seen', [ChatController::class, 'updateLastSeen']);
+Route::post('/messages/{userId}/read', [ChatController::class, 'markAsRead']);

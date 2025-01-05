@@ -15,5 +15,6 @@ Broadcast::channel('chat-room', function ($user) {
         'name' => $user->name,
         'avatar_url' => $user->avatar_url,
         'last_message' => $user->lastMessage ? $user->lastMessage->message : null,
+        'last_seen' => $user->last_seen,
     ];
 });

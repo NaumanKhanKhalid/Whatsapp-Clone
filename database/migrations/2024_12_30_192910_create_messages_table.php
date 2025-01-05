@@ -16,6 +16,7 @@ return new class extends Migration
             $table->unsignedBigInteger('sender_id'); // Ensure this is unsignedBigInteger
             $table->unsignedBigInteger('receiver_id'); // Ensure this is unsignedBigInteger
             $table->text('message');
+            $table->timestamp('read_at')->nullable();
             $table->timestamps();
         
             // Foreign key relationships
