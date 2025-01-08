@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Message;
-use App\Events\MessageSent;
+use App\Events\MessageRead;
 
+use App\Events\MessageSent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use App\Events\MessageDelivered;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 
@@ -87,10 +89,10 @@ class ChatController extends Controller
         return response()->json([
             'success' => true,
             'message' => [
+                'message_id' => $message->id,
                 'sender_id' => $message->sender_id,
                 'receiver_id' => $message->receiver_id,
                 'message' => $message->message,
-
                 'created_at' => $message->created_at->diffForHumans(),
             ],
         ]);
@@ -107,12 +109,39 @@ class ChatController extends Controller
         return response()->json(['error' => 'User not found.'], 404);
     }
 
-    public function markAsRead($userId)
+    // public function markAsRead($userId)
+    // {
+    //     Message::where('receiver_id', Auth::id())
+    //         ->where('sender_id', $userId)
+    //         ->whereNull('read_at')
+    //         ->update(['read_at' => now()]);
+    //     return response()->json(['status' => 'success']);
+    // }
+
+
+
+    public function markAsDelivered(Request $request, $messageId)
     {
-        Message::where('receiver_id', Auth::id())
-            ->where('sender_id', $userId)
+        $message = Message::findOrFail($messageId);
+        $message->delivered_at = now();
+        $message->save();
+
+        broadcast(new MessageDelivered($message))->toOthers();
+
+        return response()->json(['status' => 'delivered']);
+    }
+
+    public function markAsRead(Request $request, $receiverId)
+    {
+        $messages = Message::where('receiver_id', Auth::user()->id)
+            ->where('sender_id', $receiverId)
             ->whereNull('read_at')
             ->update(['read_at' => now()]);
-        return response()->json(['status' => 'success']);
+
+        if ($messages) {
+            broadcast(new MessageRead(['receiver_id' => Auth::user()->id, 'sender_id' => $receiverId]));
+        }
+
+        return response()->json(['success' => true]);
     }
 }

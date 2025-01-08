@@ -16,15 +16,17 @@ return new class extends Migration
             $table->unsignedBigInteger('sender_id'); // Ensure this is unsignedBigInteger
             $table->unsignedBigInteger('receiver_id'); // Ensure this is unsignedBigInteger
             $table->text('message');
+            $table->boolean('is_read')->default(false);
+            $table->timestamp('delivered_at')->nullable();
             $table->timestamp('read_at')->nullable();
             $table->timestamps();
-        
+
             // Foreign key relationships
             $table->foreign('sender_id')->references('id')->on('users')->onDelete('cascade');
             $table->foreign('receiver_id')->references('id')->on('users')->onDelete('cascade');
         });
     }
-    
+
     /**
      * Reverse the migrations.
      */

@@ -19,5 +19,15 @@ class Message extends Model
     {
         return $this->belongsTo(User::class, 'receiver_id');
     }
+
+    public function getIsReadAttribute()
+{
+    return $this->read_at !== null;
+}
+
+public function getIsDeliveredAttribute()
+{
+    return $this->delivered_at !== null;
+}
 }
 

@@ -364,6 +364,7 @@
                             $('#messageInput').val('');
                             displayMessages(response.message);
                             scrollToBottom();
+                            markMessageAsDelivered(response.message_id);
                             $('.submit_btn').prop('disabled', false);
                         },
                         error: function(error) {
@@ -371,6 +372,24 @@
                         }
                     });
                 });
+
+                function markMessageAsDelivered(messageId) {
+
+                    $.ajax({
+                        url: "{{ route('message.mark') }}",
+                        method: 'POST',
+                        data: {
+                            messageId: messageId,
+                            _token: '{{ csrf_token() }}',
+                        },
+                        success: function(response) {
+                        },
+                        error: function(error) {
+                            console.error('Error sending message:', error);
+                        }
+                    });
+                }
+
 
                 function updateLastSeen(userId) {
                     let lastPageRefreshTime = localStorage.getItem('lastPageRefreshTime');
@@ -417,28 +436,29 @@
                     specialButtons: 'green',
                 });
 
-                function markMessagesAsRead(userId) {
-                    $.ajax({
-                        url: `/messages/${userId}/read`,
-                        method: 'POST',
-                        data: {
-                            _token: '{{ csrf_token() }}'
-                        },
-                        success: function() {
-                            console.log('Messages marked as read');
-                            updateReadReceipts(userId);
-                        },
-                        error: function(error) {
-                            console.error('Error marking messages as read:', error);
-                        }
+                window.Echo.channel(`messages.${receiverId}`)
+                    .listen('MessageDelivered', (event) => {
+                        const messageId = event.message.id;
+                        updateMessageStatus(messageId, 'delivered');
                     });
+
+                // Message read
+                window.Echo.channel(`messages.${receiverId}`)
+                    .listen('MessageRead', (event) => {
+                        const messageId = event.message.id;
+                        updateMessageStatus(messageId, 'read');
+                    });
+
+                function updateMessageStatus(messageId, status) {
+                    const messageElement = document.getElementById(`message-${messageId}`);
+                    if (status === 'delivered') {
+                        messageElement.querySelector('.status').innerText = '✔️';
+                    } else if (status === 'read') {
+                        messageElement.querySelector('.status').innerText = '✔️✔️';
+                        messageElement.querySelector('.status').style.color = 'blue';
+                    }
                 }
 
-                function updateReadReceipts(userId) {
-                    $('.chat-sent .read-status').each(function() {
-                        $(this).html('✓✓');
-                    });
-                }
 
             });
         </script>
