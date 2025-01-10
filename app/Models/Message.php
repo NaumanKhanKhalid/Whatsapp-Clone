@@ -7,7 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 class Message extends Model
 {
     protected $fillable = [
-        'sender_id', 'receiver_id', 'message',
+        'sender_id',
+        'receiver_id',
+        'message',
     ];
 
     public function sender()
@@ -21,13 +23,12 @@ class Message extends Model
     }
 
     public function getIsReadAttribute()
-{
-    return $this->read_at !== null;
-}
+    {
+        return $this->read_at !== null;
+    }
 
-public function getIsDeliveredAttribute()
-{
-    return $this->delivered_at !== null;
+    public function getIsDeliveredAttribute()
+    {
+        return $this->delivered_at !== null;
+    }
 }
-}
-

@@ -32,6 +32,15 @@ class MessageDelivered implements ShouldBroadcastNow
     {
         return [
             new PrivateChannel("message.{$this->message->receiver_id}"),
+            new PrivateChannel("message.{$this->message->sender_id}"),
+        ];
+    }
+
+    public function broadcastWith()
+    {
+        return [
+            'message_id' => $this->message->id,
+            'delivered_at' => $this->message->delivered_at->diffForHumans(),
         ];
     }
 }

@@ -35,7 +35,9 @@ class ChatController extends Controller
                         'sender_id' => $message->sender_id,
                         'receiver_id' => $message->receiver_id,
                         'message' => $message->message,
+                        'message_id' => $message->id,
                         'read_at' => $message->read_at,
+                        'delivered_at' => $message->delivered_at,
                         'created_at' => $message->created_at->diffForHumans(),
                     ];
                 });
@@ -120,28 +122,27 @@ class ChatController extends Controller
 
 
 
-    public function markAsDelivered(Request $request, $messageId)
+    public function markAsDelivered(Request $request)
     {
-        $message = Message::findOrFail($messageId);
+
+        $message_id = $request->messageId;
+        $message = Message::findOrFail($message_id);
         $message->delivered_at = now();
-        $message->save();
+        $message->save();   
 
-        broadcast(new MessageDelivered($message))->toOthers();
-
+        event(new MessageDelivered($message));
         return response()->json(['status' => 'delivered']);
     }
 
-    public function markAsRead(Request $request, $receiverId)
+
+    public function markAsRead(Request $request)
     {
-        $messages = Message::where('receiver_id', Auth::user()->id)
-            ->where('sender_id', $receiverId)
-            ->whereNull('read_at')
-            ->update(['read_at' => now()]);
+        $message_id = $request->messageId;
+        $message = Message::findOrFail($message_id);
+        $message->read_at = now();
+        $message->save();   
 
-        if ($messages) {
-            broadcast(new MessageRead(['receiver_id' => Auth::user()->id, 'sender_id' => $receiverId]));
-        }
-
-        return response()->json(['success' => true]);
+        event(new MessageRead($message));
+        return response()->json(['status' => 'read']);
     }
 }

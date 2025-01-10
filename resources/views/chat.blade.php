@@ -56,20 +56,16 @@
             border: none !important;
         }
 
-        .read-status {
-            font-size: 12px;
-            color: #34b7f1;
-            margin-left: 5px;
-        }
-
-        .read-status {
-            color: #34b7f1;
-            /* Blue for read receipts */
-        }
-
-        .read-status.unread {
+        .message-status.send {
             color: #999;
-            /* Grey for unread receipts */
+        }
+
+        .message-status.deliverd {
+            color: #999;
+        }
+
+        .message-status.read {
+            color: #34b7f1;
         }
     </style>
 
@@ -160,6 +156,10 @@
 
                 window.Echo.private(`message.${loginUserId}`)
                     .listen('MessageSent', (event) => {
+                        console.log(event);
+
+                        markMessageAsDelivered(event.message_id);
+
                         displayMessages(event);
                         scrollToBottom();
                     })
@@ -255,7 +255,7 @@
                                 displayMessages(messages.reverse(), false);
 
                                 scrollToBottom();
-                                markMessagesAsRead(selectedUser.id);
+
                                 $('.no-chat-selected').hide();
                                 $('.chat-view').show();
                             }
@@ -271,15 +271,29 @@
 
                     let messageHTML = '';
                     messages.forEach(message => {
+
+                        if (message.read_at !== null) {
+                            markMessagesAsRead(message.message_id);
+
+                        }
                         const senderClass = message.sender_id === loginUserId ? "chat-sent" : "chat-received";
-                        const readReceipt = message.read_at ? `<span class="read-status">✓✓</span>` :
-                            `<span class="read-status">✓</span>`;
+
+                        let receipt = message.read_at ? "✓✓" : (message.delivered_at ? "✓✓" : "✓");
+                        let receiptClass = message.read_at ? "read" : (message.delivered_at ? "delivered" :
+                            "send");
+
 
 
                         messageHTML +=
-                            `<p class="chat-message ${senderClass}">${message.message}<span class="chat-timestamp">${message.created_at}</span>${senderClass === 'chat-sent' ? readReceipt : ''}</p>`;
+                            `<p data-message-id="${message.message_id}" class="chat-message ${senderClass}">
+                            ${message.message}<span class="chat-timestamp">${message.created_at}</span>
+                            ${senderClass === 'chat-sent' ? `<span class="message-status ${receiptClass}">${receipt}</span>` : ''}
+                        </p>`;
+
                     });
                     const $messageContent = $('.message-content');
+
+
 
 
                     if (prepend) {
@@ -290,7 +304,6 @@
                         const scrollDiff = currentScrollHeight - lastScrollHeight;
                         $messageContent.scrollTop(scrollDiff);
                     } else {
-                        markMessagesAsRead(selectedUserId);
                         $messageContent.append(messageHTML);
                         scrollToBottom();
                     }
@@ -364,7 +377,7 @@
                             $('#messageInput').val('');
                             displayMessages(response.message);
                             scrollToBottom();
-                            markMessageAsDelivered(response.message_id);
+                            // markMessageAsDelivered(response.message_id);
                             $('.submit_btn').prop('disabled', false);
                         },
                         error: function(error) {
@@ -374,7 +387,6 @@
                 });
 
                 function markMessageAsDelivered(messageId) {
-
                     $.ajax({
                         url: "{{ route('message.mark') }}",
                         method: 'POST',
@@ -382,8 +394,22 @@
                             messageId: messageId,
                             _token: '{{ csrf_token() }}',
                         },
-                        success: function(response) {
+                        success: function(response) {},
+                        error: function(error) {
+                            console.error('Error sending message:', error);
+                        }
+                    });
+                }
+
+                function markMessagesAsRead(messageId) {
+                    $.ajax({
+                        url: "{{ route('message.mark.read') }}",
+                        method: 'POST',
+                        data: {
+                            messageId: messageId,
+                            _token: '{{ csrf_token() }}',
                         },
+                        success: function(response) {},
                         error: function(error) {
                             console.error('Error sending message:', error);
                         }
@@ -436,30 +462,39 @@
                     specialButtons: 'green',
                 });
 
-                window.Echo.channel(`messages.${receiverId}`)
+                window.Echo.private(`message.${loginUserId}`)
                     .listen('MessageDelivered', (event) => {
-                        const messageId = event.message.id;
+                        console.log(event, "message deliverd ");
+
+                        const messageId = event.message_id;
+                        const delivered_at = event.delivered_at;
                         updateMessageStatus(messageId, 'delivered');
                     });
 
-                // Message read
-                window.Echo.channel(`messages.${receiverId}`)
+                // Message read  
+                window.Echo.private(`message.${loginUserId}`)
                     .listen('MessageRead', (event) => {
-                        const messageId = event.message.id;
+                        const messageId = event.message_id;
+                        const read_at = event.read_at;
                         updateMessageStatus(messageId, 'read');
                     });
 
                 function updateMessageStatus(messageId, status) {
-                    const messageElement = document.getElementById(`message-${messageId}`);
+                    const messageElement = document.querySelector(`p[data-message-id="${messageId}"]`);
+
+                    let statusSpan = messageElement.querySelector('.message-status');
+
+                    const receipt = (status === 'read' || status === 'delivered') ? '✓✓' : '✓';
+                    statusSpan.textContent = receipt;
+
+
+                    statusSpan.classList.remove('delivered', 'read');
                     if (status === 'delivered') {
-                        messageElement.querySelector('.status').innerText = '✔️';
+                        statusSpan.classList.add('delivered');
                     } else if (status === 'read') {
-                        messageElement.querySelector('.status').innerText = '✔️✔️';
-                        messageElement.querySelector('.status').style.color = 'blue';
+                        statusSpan.classList.add('read');
                     }
                 }
-
-
             });
         </script>
     </body>
