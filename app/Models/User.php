@@ -11,9 +11,12 @@ use Illuminate\Support\Facades\Auth;
 
 class User extends Authenticatable
 {
-    
     public function lastMessage()
     {
-        return $this->hasOne(Message::class, 'receiver_id', 'id')->where('sender_id', Auth::id())->latest();
+        return $this->hasOne(Message::class, 'sender_id')
+            ->orWhere('receiver_id', $this->id)
+            ->latest()
+            ->first();
     }
+  
 }

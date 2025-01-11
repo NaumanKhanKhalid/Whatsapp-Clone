@@ -17,42 +17,66 @@ class ChatController extends Controller
 {
 
     public function getAllUsers()
-    {
-        $users = User::where('id', '!=', Auth::user()->id)->get();
-        return response()->json($users);
-    }
-    public function chat(Request $request, $id = null)
-    {
-        $selectedUser = null;
-        $messages = [];
+{
+    $users = User::where('id', '!=', Auth::user()->id)->get();
 
-        if ($id) {
-            $selectedUser = User::find($id);
-            if ($selectedUser) {
-                // Get the most recent messages (last 10 messages)
-                $messages = $this->getMessages($selectedUser, $request->query('page', 1), 10)->map(function ($message) {
-                    return [
-                        'sender_id' => $message->sender_id,
-                        'receiver_id' => $message->receiver_id,
-                        'message' => $message->message,
-                        'message_id' => $message->id,
-                        'read_at' => $message->read_at,
-                        'delivered_at' => $message->delivered_at,
-                        'created_at' => $message->created_at->diffForHumans(),
-                    ];
-                });
-            }
+    $users->map(function ($user) {
+        $lastMessage = $user->lastMessage();
+        
+        // Set the message content
+        $user->last_message = $lastMessage ? $lastMessage->message : null;
+        
+        // Set the last message time with custom formatting
+        $user->last_message_time = $lastMessage ? 
+            ($lastMessage->created_at->isToday() ? $lastMessage->created_at->format('h:i A') : 
+            ($lastMessage->created_at->isYesterday() ? 'Yesterday ' . $lastMessage->created_at->format('h:i A') : 
+            $lastMessage->created_at->format('Y-m-d'))) 
+            : null;
+        
+        return $user;
+    });
+
+    return response()->json($users);
+}
+
+public function chat(Request $request, $id = null)
+{
+    $selectedUser = null;
+    $messages = [];
+
+    if ($id) {
+        $selectedUser = User::find($id);
+        if ($selectedUser) {
+            $messages = $this->getMessages($selectedUser, $request->query('page', 1), 10)->map(function ($message) {
+                // Format the 'created_at' timestamp based on custom logic
+                $formattedCreatedAt = $message->created_at ?
+                    ($message->created_at->isToday() ? $message->created_at->format('h:i A') :
+                    ($message->created_at->isYesterday() ? 'Yesterday ' . $message->created_at->format('h:i A') :
+                    $message->created_at->format('Y-m-d'))) : null;
+
+                return [
+                    'sender_id' => $message->sender_id,
+                    'receiver_id' => $message->receiver_id,
+                    'message' => $message->message,
+                    'message_id' => $message->id,
+                    'read_at' => $message->read_at,
+                    'delivered_at' => $message->delivered_at,
+                    'created_at' => $formattedCreatedAt, // Use formatted timestamp here
+                ];
+            });
         }
-
-        if ($request->ajax()) {
-            return response()->json([
-                'selectedUser' => $selectedUser,
-                'messages' => $messages,
-            ]);
-        }
-
-        return view('chat', compact('selectedUser', 'messages'));
     }
+
+    if ($request->ajax()) {
+        return response()->json([
+            'selectedUser' => $selectedUser,
+            'messages' => $messages,
+        ]);
+    }
+
+    return view('chat', compact('selectedUser', 'messages'));
+}
+
 
     protected function getMessages($selectedUser, $page = 1, $perPage = 10)
     {
@@ -111,24 +135,13 @@ class ChatController extends Controller
         return response()->json(['error' => 'User not found.'], 404);
     }
 
-    // public function markAsRead($userId)
-    // {
-    //     Message::where('receiver_id', Auth::id())
-    //         ->where('sender_id', $userId)
-    //         ->whereNull('read_at')
-    //         ->update(['read_at' => now()]);
-    //     return response()->json(['status' => 'success']);
-    // }
-
-
-
     public function markAsDelivered(Request $request)
     {
 
         $message_id = $request->messageId;
         $message = Message::findOrFail($message_id);
         $message->delivered_at = now();
-        $message->save();   
+        $message->save();
 
         event(new MessageDelivered($message));
         return response()->json(['status' => 'delivered']);
@@ -140,7 +153,7 @@ class ChatController extends Controller
         $message_id = $request->messageId;
         $message = Message::findOrFail($message_id);
         $message->read_at = now();
-        $message->save();   
+        $message->save();
 
         event(new MessageRead($message));
         return response()->json(['status' => 'read']);

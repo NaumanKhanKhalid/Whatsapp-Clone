@@ -15,23 +15,16 @@ class MessageRead implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
     public $message;
-    /**
-     * Create a new event instance.
-     */
+
     public function __construct($message)
     {
         $this->message = $message;
     }
 
-    /**
-     * Get the channels the event should broadcast on.
-     *
-     * @return array<int, \Illuminate\Broadcasting\Channel>
-     */
+
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel("message.{$this->message->receiver_id}"),
             new PrivateChannel("message.{$this->message->sender_id}"),
         ];
     }
