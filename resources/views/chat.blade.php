@@ -9,6 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <link rel="shortcut icon" href="{{ asset('assets/images/whatsapp.png') }}" type="image/jpg">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.30.1/moment.min.js"></script>
+    <meta name="csrf-token" id="csrf-token" content="{{ csrf_token() }}">
 
     <script src="{{ asset('assets/js/vanillaEmojiPicker.js') }}"></script>
     @vite(['resources/js/app.js'])
@@ -48,33 +49,13 @@
         <div class="sidebar-chats"></div>
     </div>
 
-    <style>
-        .no-chat-selected {
-    text-align: center;
-    margin-top: 50px;
-    font-family: 'Roboto', sans-serif;
-    color: #333;
-}
 
-.no-chat-selected h2 {
-    font-size: 24px;
-    color: #2e2e2e;
-    margin-bottom: 20px;
-}
-
-.no-chat-selected p {
-    font-size: 16px;
-    color: #6c6c6c;
-    margin-bottom: 30px;
-}
-
-    </style>
 
     <div class="message-container">
         <div class="no-chat-selected">
             <h2>Select a Chat to Begin</h2>
             <p>Start by selecting a user from the sidebar to chat.</p>
-            
+
         </div>
         <div class="chat-view">
             <div class="header">
@@ -101,8 +82,12 @@
                 <img src="{{ asset('assets/images/paper-clip.svg') }}" id="fileButton" alt="Attach">
                 <input type="file" style="display: none" name="file" id="fileInput">
                 <textarea id="messageInput" name="" cols="30" rows="10"></textarea>
-                <button type="submit" class="submit_btn" aria-label="Send Message">
-                    <img src="{{ asset('assets/images/send_10.svg') }}" class="send_svg" alt="Send">
+                <button type="button" class="submit_btn" aria-label="Send Message">
+
+                    <img src="{{ asset('assets/images/icons/mic.svg') }}" class="mic_svg" alt="Mic Svg">
+                    <img src="{{ asset('assets/images/icons/stop.svg') }}" style="display: none;" class="stop_svg"
+                        alt="Stop Svg">
+                    <img src="{{ asset('assets/images/icons/send_2.svg') }}" class="send_svg" alt="Send Svg">
                 </button>
             </form>
         </div>
@@ -110,6 +95,28 @@
 
     <script>
         $(document).ready(function() {
+
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+            toggleButton();
+
+            $('#messageInput').on('input', function() {
+                toggleButton();
+            });
+
+            function toggleButton() {
+                if ($('#messageInput').val().trim() === "") {
+                    $('.mic_svg').show();
+                    $('.send_svg').hide();
+                } else {
+                    $('.mic_svg').hide();
+                    $('.send_svg').show();
+                }
+            }
+
             let selectedUserId = null;
             const loginUserId = {{ Auth::user()->id }};
             const currentTime = moment().toISOString();
@@ -117,24 +124,22 @@
             let isFetchingMessages = false;
             let lastScrollHeight = 0;
             let activeUsers = [];
-            // localStorage.setItem('lastPageRefreshTime', currentTime);
             const unreadMessages = JSON.parse(localStorage.getItem('unreadMessages')) || {};
 
 
             window.Echo.private(`message.${loginUserId}`)
-                .listen('MessageSent', (event) => {
+                .listen('MessageSent', (e) => {
 
-                    markMessageAsDelivered(event.message_id);
-                    if (selectedUserId == event.receiver_id) {
-                        displayMessages(event);
+                    markMessageAsDelivered(e.message_id);
+                    if (selectedUserId == e.receiver_id) {
+                        displayMessages(e);
                         scrollToBottom();
 
                     } else {
-                        incrementUnreadCount(event.sender_id);
+                        incrementUnreadCount(e.sender_id);
                     }
 
-                    updateMessageInSidebar(event.receiver_id, event.sender_id, event.message, event
-                        .last_message_time);
+                    updateMessageInSidebar(e.receiver_id, e.sender_id, e.message, e.last_message_time, "text");
 
                 })
 
@@ -220,23 +225,24 @@
                     method: 'GET',
                     dataType: 'json',
                     success: (users) => renderUsers(users, onlineUsers),
-                    error: (error) => console.error('Error fetching users:', error),
                 });
             }
 
             function renderUsers(users, onlineUsers) {
-                let usersHTML = '';
-                const unreadMessages = JSON.parse(localStorage.getItem('unreadMessages')) || {};
+    let usersHTML = '';
+    const unreadMessages = JSON.parse(localStorage.getItem('unreadMessages')) || {};
 
-                users.forEach(user => {
-                    const isOnline = onlineUsers.some(u => u.id === user.id);
-                    const statusClass = isOnline ? 'online' : 'offline';
-                    const lastMessage = user.last_message || '';
-                    const createdAt = user.last_message_time || '';
-                    const lastSeen = !isOnline ? `Last seen: ${moment(user.last_seen).fromNow()}` :
-                        'Online';
+    users.forEach(user => {
+        const isOnline = onlineUsers.some(u => u.id === user.id);
+        const statusClass = isOnline ? 'online' : 'offline';
+        const lastMessage = user.last_message || '';
+        const createdAt = user.last_message_time || '';
+        const type = user.last_message_type || '';
+        const duration = user.last_message_duration || '';  // Get the voice duration if it's a voice message
+        const lastSeen = !isOnline ? `Last seen: ${moment(user.last_seen).fromNow()}` : 'Online';
 
-                    usersHTML += `
+        // Start building the user HTML structure
+        usersHTML += `
             <div class="sidebar-chat user-id-${user.id}" onclick="openChat(${user.id})">
                 <span class="status-indicator ${statusClass}"></span>
                 <div class="chat-avatar">
@@ -244,25 +250,46 @@
                 </div>
                 <div class="chat-info">
                     <h4 class="user_name">${user.name}</h4>
-                    <p class="message">${lastMessage}</p>
+                    <p class="message">
+        `;
+
+        // Check the message type and display accordingly
+        if (type === 'voice') {
+            // If it's a voice message, show the voice icon and duration
+            usersHTML += `
+                    <div class="voice-message">
+                        <img src="{{asset('assets/images/icons/mic.svg')}}" alt="Voice" class="voice-icon" />
+                        <span class="voice-duration">${duration}</span>
+                    </div>
+            `;
+        } else {
+            // Otherwise, just display the last text message
+            usersHTML += lastMessage;
+        }
+
+        usersHTML += `
+                    </p>
                 </div>
                 <div class="time">
                     <p>${createdAt}</p>
-                </div>`;
+                </div>
+        `;
 
-                    if (unreadMessages[user.id]) {
-                        const unreadCount = unreadMessages[user.id] > 99 ? '99+' : unreadMessages[user.id];
-                        usersHTML +=
-                            `<div class="unread-badge" style="display: block;">${unreadCount}</div>`;
-                    } else {
-                        usersHTML +=
-                            `<div class="unread-badge" style="display: none;"></div>`;
-                    }
-                    usersHTML += `</div>`;
-                });
+        // Display unread message badge if there are unread messages for the user
+        if (unreadMessages[user.id]) {
+            const unreadCount = unreadMessages[user.id] > 99 ? '99+' : unreadMessages[user.id];
+            usersHTML += `<div class="unread-badge" style="display: block;">${unreadCount}</div>`;
+        } else {
+            usersHTML += `<div class="unread-badge" style="display: none;"></div>`;
+        }
 
-                $('.sidebar-chats').html(usersHTML);
-            }
+        usersHTML += `</div>`;
+    });
+
+    // Insert the generated HTML into the sidebar
+    $('.sidebar-chats').html(usersHTML);
+}
+
 
 
             function fetchMessages(userId, page = 1) {
@@ -299,6 +326,7 @@
                             updateSelectedUserStatus(selectedUser);
                             displayMessages(messages.reverse(), false);
                             scrollToBottom();
+
                             $('.no-chat-selected').hide();
                             $('.chat-view').show();
                         }
@@ -307,31 +335,51 @@
             };
 
 
-            function updateMessageInSidebar(receiver_id, sender_id, message, message_time) {
-                console.log("aaaa");
+            function updateMessageInSidebar(receiver_id, sender_id, message, message_time, type, voiceDuration = null) {
+    var receiverDiv = $('.user-id-' + receiver_id);
+    var senderDiv = $('.user-id-' + sender_id);
 
-                var receiverDiv = $('.user-id-' + receiver_id);
-                var senderDiv = $('.user-id-' + sender_id);
-                console.log(receiver_id, sender_id, message, message_time);
+    // Set the message for the receiver
+    if (receiverDiv.length) {
+        if (type === "voice" && voiceDuration) {
+            // If it's a voice message, add the voice icon and duration
+            receiverDiv.find('.message').html(`
+                <div class="voice-message">
+                    <img src="{{asset('assets/images/icons/mic.svg')}}" alt="Voice" class="voice-icon" />
+                    <span class="voice-duration">${voiceDuration}</span>
+                </div>
+            `);
+        } else {
+            receiverDiv.find('.message').text(message); // Text message
+        }
+        receiverDiv.find('.time p').text(message_time); // Update message time
+    }
 
-                if (receiverDiv.length) {
-                    receiverDiv.find('.message').text(message);
-                    receiverDiv.find('.time p').text(message_time);
-                }
-
-                if (senderDiv.length) {
-                    senderDiv.find('.message').text(message);
-                    senderDiv.find('.time p').text(message_time);
-                }
-            }
+    // Set the message for the sender
+    if (senderDiv.length) {
+        if (type === "voice" && voiceDuration) {
+            // If it's a voice message, add the voice icon and duration
+            senderDiv.find('.message').html(`
+                <div class="voice-message">
+                    <img src="{{asset('assets/images/icons/mic.svg')}}" alt="Voice" class="voice-icon" />
+                    <span class="voice-duration">${voiceDuration}</span>
+                </div>
+            `);
+        } else {
+            senderDiv.find('.message').text(message); // Text message
+        }
+        senderDiv.find('.time p').text(message_time); // Update message time
+    }
+}
 
             function displayMessages(messages, prepend = false) {
+
                 if (!Array.isArray(messages)) {
                     messages = [messages];
                 }
-
                 let messageHTML = '';
                 messages.forEach(message => {
+
                     if (message.read_at == null && message.sender_id !== loginUserId) {
                         markMessagesAsRead(message.message_id);
                     }
@@ -340,16 +388,29 @@
                         $('.typing-indicator').parent().remove();
                     }
 
-
                     const senderClass = message.sender_id === loginUserId ? "chat-sent" : "chat-received";
                     let receipt = message.read_at ? "✓✓" : (message.delivered_at ? "✓✓" : "✓");
                     let receiptClass = message.read_at ? "read" : (message.delivered_at ? "delivered" :
                         "send");
 
-                    messageHTML += `<p data-message-id="${message.message_id}" class="chat-message ${senderClass}">
-                                        ${message.message}<span class="chat-timestamp">${message.created_at}</span>
-                                        ${senderClass === 'chat-sent' ? `<span class="message-status ${receiptClass}">${receipt}</span>` : ''}
-                                    </p>`;
+                    // Handle different message types (text vs voice)
+                    if (message.type === 'voice') {
+                        // Display voice message with a player
+                        messageHTML += `<p data-message-id="${message.message_id}" class="chat-message ${senderClass}">
+                                <audio controls>
+                                    <source src="${message.message}" type="audio/wav">
+                                </audio>
+                                <span class="chat-timestamp">${message.created_at}</span>
+                                ${senderClass === 'chat-sent' ? `<span class="message-status ${receiptClass}">${receipt}</span>` : ''}
+                            </p>`;
+                    } else {
+                        // Display text message
+                        messageHTML += `<p data-message-id="${message.message_id}" class="chat-message ${senderClass}">
+                                ${message.message}
+                                <span class="chat-timestamp">${message.created_at}</span>
+                                ${senderClass === 'chat-sent' ? `<span class="message-status ${receiptClass}">${receipt}</span>` : ''}
+                            </p>`;
+                    }
                 });
 
                 const $messageContent = $('.message-content');
@@ -365,6 +426,7 @@
                     scrollToBottom();
                 }
             }
+
 
             function scrollToBottom() {
                 $('.message-content').scrollTop($('.message-content')[0].scrollHeight);
@@ -415,50 +477,14 @@
                 });
             });
 
-            $('#MessageForm').on('submit', function(e) {
-                e.preventDefault();
-                const message = $('#messageInput').val();
-                if (!message || !selectedUserId) return;
-                $('.submit_btn').prop('disabled', true);
-                $('.typing-indicator').parent().remove();
-
-                $.ajax({
-                    url: "{{ route('messages.send') }}",
-                    method: 'POST',
-                    data: {
-                        message: message,
-                        receiver_id: selectedUserId,
-                        _token: '{{ csrf_token() }}',
-                    },
-                    success: function(response) {
-                        console.log(response, "responseresponse");
-
-                        $('#messageInput').val('');
-                        displayMessages(response.message);
-                        scrollToBottom();
-                        updateMessageInSidebar(response.message.receiver_id, response.message
-                            .sender_id, response.message.message, response.message
-                            .created_at);
-                        $('.submit_btn').prop('disabled', false);
-                    },
-                    error: function(error) {
-                        console.error('Error sending message:', error);
-                    }
-                });
-            });
-
             function markMessageAsDelivered(messageId) {
                 $.ajax({
                     url: "{{ route('message.mark') }}",
                     method: 'POST',
                     data: {
                         messageId: messageId,
-                        _token: '{{ csrf_token() }}',
                     },
                     success: function(response) {},
-                    error: function(error) {
-                        console.error('Error sending message:', error);
-                    }
                 });
             }
 
@@ -468,31 +494,17 @@
                     method: 'POST',
                     data: {
                         messageId: messageId,
-                        _token: '{{ csrf_token() }}',
                     },
                     success: function(response) {},
-                    error: function(error) {
-                        console.error('Error sending message:', error);
-                    }
                 });
             }
 
             function updateLastSeen(userId) {
-                // let lastPageRefreshTime = localStorage.getItem('lastPageRefreshTime');
-                // const shouldUpdateLastSeen = !lastPageRefreshTime || moment(currentTime).diff(
-                //     lastPageRefreshTime,
-                //     'minutes') > 1;
-                // if (shouldUpdateLastSeen) {
                 $.ajax({
                     url: `/users/${userId}/update-last-seen`,
                     method: 'POST',
-                    data: {
-                        _token: '{{ csrf_token() }}'
-                    },
                     success: () => console.log(`Last seen updated for user ${userId}`),
-                    error: (error) => console.error('Error updating last seen:', error),
                 });
-                // }
             }
 
             $('#fileButton').on('click', function() {
@@ -535,6 +547,157 @@
                 } else if (status === 'read') {
                     statusSpan.classList.add('read');
                 }
+            }
+
+            let isRecording = false;
+            let mediaRecorder;
+            let audioChunks = [];
+
+            $('.mic_svg').on('click', function(e) {
+                e.preventDefault();
+                if (isRecording) return;
+                startRecording();
+            });
+
+            $('.send_svg').on('click', function(e) {
+                e.preventDefault();
+                $('.submit_btn').prop('disabled', true);
+                $('.typing-indicator').parent().remove();
+
+                var messageType = "";
+                var messageData = null;
+
+                var messageText = $('#messageInput').val();
+                var imageFile = $('#fileInput')[0].files[0];
+
+                if (messageText && !imageFile && !audioChunks.length) {
+                    messageType = "text";
+                    messageData = messageText;
+                } else if (imageFile && !messageText && !audioChunks.length) {
+                    messageType = "image";
+                    messageData = imageFile;
+                }
+
+                var formData = new FormData();
+                formData.append('receiver_id', selectedUserId);
+                formData.append('type', messageType);
+                formData.append('message', messageData);
+
+                if (imageFile) {
+                    formData.append('file', imageFile);
+                }
+
+                if (isRecording) {
+                    stopRecording(function(audioBlob, duration) {
+                        var voiceFormData = new FormData();
+                        voiceFormData.append('message', audioBlob);
+                        voiceFormData.append('voice_duration', duration);
+                        voiceFormData.append('type', 'voice');
+                        voiceFormData.append('receiver_id', selectedUserId);
+
+                        sendMessage(voiceFormData);
+                    });
+                } else {
+                    sendMessage(formData);
+                }
+            });
+
+            function startRecording() {
+                isRecording = true;
+                audioChunks = [];
+
+                $('.mic_svg').hide();
+                $('.send_svg').show();
+                $('.stop_svg').show();
+                $('.recording-indicator').text('Recording...');
+
+                navigator.mediaDevices.getUserMedia({
+                        audio: true
+                    })
+                    .then(stream => {
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.ondataavailable = event => {
+                            audioChunks.push(event.data);
+                        };
+                        mediaRecorder.start();
+                    })
+                    .catch(err => {
+                        console.error('Error accessing microphone:', err);
+                        alert('Microphone access denied! Please check your device settings.');
+                        stopRecording(null);
+                    });
+            }
+
+            function stopRecording(callback) {
+    isRecording = false;
+
+    if (mediaRecorder) {
+        mediaRecorder.stop();
+        mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+
+            const reader = new FileReader();
+            reader.onloadend = function() {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                audioContext.decodeAudioData(reader.result, function(buffer) {
+                    const duration = buffer.duration; // Duration in seconds
+                    console.log('Audio Duration:', duration); // Debugging log
+                    const formattedDuration = formatDuration(duration);
+
+                    // Pass audioBlob and formatted duration to callback
+                    callback(audioBlob, formattedDuration);
+                }, function(e) {
+                    console.error('Error decoding audio data:', e);
+                    callback(audioBlob, '00:00'); // Return default value if error occurs
+                });
+            };
+
+            reader.readAsArrayBuffer(audioBlob);
+        };
+    }
+
+    // Reset UI
+    $('.mic_svg').show();
+    $('.send_svg').hide();
+    $('.stop_svg').hide();
+    $('.recording-indicator').text(''); // Clear recording status
+}
+
+
+            // Format duration in seconds to HH:MM:SS
+            function formatDuration(seconds) {
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = Math.floor(seconds % 60);
+                return `${minutes < 10 ? '0' : ''}${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+            }
+
+            function sendMessage(formData) {
+                $.ajax({
+                    url: "{{ route('messages.send') }}",
+                    method: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    beforeSend: function() {
+                        $('.send_svg').attr('disabled', true);
+                    },
+                    success: function(e) {
+                        console.log(e, "Eeeeee");
+
+                        $('#messageInput').val('');
+                        displayMessages(e.message);
+                        scrollToBottom();
+                        updateMessageInSidebar(e.message.receiver_id, e.message.sender_id, e.message
+                            .message, e.message.created_at, e.message.type, e.message.voice_duration
+                            );
+                        $('.submit_btn').prop('disabled', false);
+                    },
+                    error: function(xhr) {
+                        console.error('Error sending message:', xhr.eText);
+                        alert('Error sending message. Please try again.');
+                        $('.send_svg').attr('disabled', false);
+                    }
+                });
             }
         });
     </script>

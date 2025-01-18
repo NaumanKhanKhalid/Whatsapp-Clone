@@ -36,6 +36,8 @@ class MessageSent implements ShouldBroadcastNow
             'message' => $this->message->message,
             'message_id' => $this->message->id,
             'created_at' => $this->message->created_at->diffForHumans(),
+            'type' => $this->message->type,
+            'duration' => $this->message->duration,
         ];
     }
 }

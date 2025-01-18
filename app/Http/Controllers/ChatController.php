@@ -17,65 +17,66 @@ class ChatController extends Controller
 {
 
     public function getAllUsers()
-{
-    $users = User::where('id', '!=', Auth::user()->id)->get();
+    {
+        $users = User::where('id', '!=', Auth::user()->id)->get();
 
-    $users->map(function ($user) {
-        $lastMessage = $user->lastMessage();
-        
-        // Set the message content
-        $user->last_message = $lastMessage ? $lastMessage->message : null;
-        
-        // Set the last message time with custom formatting
-        $user->last_message_time = $lastMessage ? 
-            ($lastMessage->created_at->isToday() ? $lastMessage->created_at->format('h:i A') : 
-            ($lastMessage->created_at->isYesterday() ? 'Yesterday ' . $lastMessage->created_at->format('h:i A') : 
-            $lastMessage->created_at->format('Y-m-d'))) 
-            : null;
-        
-        return $user;
-    });
+        $users->map(function ($user) {
+            $lastMessage = $user->lastMessage();
 
-    return response()->json($users);
-}
+            // Set the message content
+            $user->last_message = $lastMessage ? $lastMessage->message : null;
+            $user->last_message_type = $lastMessage ? $lastMessage->type : null;
+            $user->last_message_duration = $lastMessage ? $lastMessage->duration : null;
 
-public function chat(Request $request, $id = null)
-{
-    $selectedUser = null;
-    $messages = [];
+            // Set the last message time with custom formatting
+            $user->last_message_time = $lastMessage ?
+                ($lastMessage->created_at->isToday() ? $lastMessage->created_at->format('h:i A') : ($lastMessage->created_at->isYesterday() ? 'Yesterday ' . $lastMessage->created_at->format('h:i A') :
+                    $lastMessage->created_at->format('Y-m-d')))
+                : null;
 
-    if ($id) {
-        $selectedUser = User::find($id);
-        if ($selectedUser) {
-            $messages = $this->getMessages($selectedUser, $request->query('page', 1), 10)->map(function ($message) {
-                // Format the 'created_at' timestamp based on custom logic
-                $formattedCreatedAt = $message->created_at ?
-                    ($message->created_at->isToday() ? $message->created_at->format('h:i A') :
-                    ($message->created_at->isYesterday() ? 'Yesterday ' . $message->created_at->format('h:i A') :
-                    $message->created_at->format('Y-m-d'))) : null;
+            return $user;
+        });
 
-                return [
-                    'sender_id' => $message->sender_id,
-                    'receiver_id' => $message->receiver_id,
-                    'message' => $message->message,
-                    'message_id' => $message->id,
-                    'read_at' => $message->read_at,
-                    'delivered_at' => $message->delivered_at,
-                    'created_at' => $formattedCreatedAt, // Use formatted timestamp here
-                ];
-            });
+        return response()->json($users);
+    }
+
+    public function chat(Request $request, $id = null)
+    {
+        $selectedUser = null;
+        $messages = [];
+
+        if ($id) {
+            $selectedUser = User::find($id);
+            if ($selectedUser) {
+                $messages = $this->getMessages($selectedUser, $request->query('page', 1), 10)->map(function ($message) {
+                    // Format the 'created_at' timestamp based on custom logic
+                    $formattedCreatedAt = $message->created_at ?
+                        ($message->created_at->isToday() ? $message->created_at->format('h:i A') : ($message->created_at->isYesterday() ? 'Yesterday ' . $message->created_at->format('h:i A') :
+                            $message->created_at->format('Y-m-d'))) : null;
+
+                    return [
+                        'sender_id' => $message->sender_id,
+                        'receiver_id' => $message->receiver_id,
+                        'message' => $message->message,
+                        'message_id' => $message->id,
+                        'read_at' => $message->read_at,
+                        'type' => $message->type,
+                        'delivered_at' => $message->delivered_at,
+                        'created_at' => $formattedCreatedAt, // Use formatted timestamp here
+                    ];
+                });
+            }
         }
-    }
 
-    if ($request->ajax()) {
-        return response()->json([
-            'selectedUser' => $selectedUser,
-            'messages' => $messages,
-        ]);
-    }
+        if ($request->ajax()) {
+            return response()->json([
+                'selectedUser' => $selectedUser,
+                'messages' => $messages,
+            ]);
+        }
 
-    return view('chat', compact('selectedUser', 'messages'));
-}
+        return view('chat', compact('selectedUser', 'messages'));
+    }
 
 
     protected function getMessages($selectedUser, $page = 1, $perPage = 10)
@@ -99,18 +100,33 @@ public function chat(Request $request, $id = null)
 
     public function sendMessage(Request $request)
     {
+        // dd($request->all());
         $request->validate([
-            'message' => 'required|string|max:500',
+            'message' => 'required',
+            'type' => 'required|string',
             'receiver_id' => 'required|exists:users,id',
         ]);
+
+        $filePath = null;
+        $voice_duration = null;
+
+        if ($request->type == 'voice') {
+            $voice_duration = $request->voice_duration;
+            $filePath = $request->file('message')->store('voice_notes', 'public');
+            $fileUrl = asset('storage/' . $filePath);
+        }
+
+
+        // Create a new message record
         $message = Message::create([
             'sender_id' => Auth::id(),
             'receiver_id' => $request->receiver_id,
-            'message' => $request->message,
+            'message' => $fileUrl ?? $request->message,
+            'type' => $request->type,
+            'duration' => $request->voice_duration,
         ]);
 
         event(new MessageSent($message));
-
 
         return response()->json([
             'success' => true,
@@ -118,11 +134,15 @@ public function chat(Request $request, $id = null)
                 'message_id' => $message->id,
                 'sender_id' => $message->sender_id,
                 'receiver_id' => $message->receiver_id,
-                'message' => $message->message,
+                'message' => $fileUrl ?? $message->message,
+                'voice_duration' => $voice_duration,
+                'type' => $message->type,
                 'created_at' => $message->created_at->diffForHumans(),
             ],
         ]);
     }
+
+
 
     public function updateLastSeen($id)
     {

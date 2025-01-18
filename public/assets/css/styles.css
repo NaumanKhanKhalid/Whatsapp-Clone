@@ -412,3 +412,21 @@ button {
     font-weight: bold;
     display: none;
 }
+.no-chat-selected {
+    text-align: center;
+    margin-top: 50px;
+    font-family: 'Roboto', sans-serif;
+    color: #333;
+}
+
+.no-chat-selected h2 {
+    font-size: 24px;
+    color: #2e2e2e;
+    margin-bottom: 20px;
+}
+
+.no-chat-selected p {
+    font-size: 16px;
+    color: #6c6c6c;
+    margin-bottom: 30px;
+}
