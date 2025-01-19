@@ -15,7 +15,11 @@
     @vite(['resources/js/app.js'])
     <link rel="stylesheet" href="{{ asset('assets/css/styles.css') }}">
     <title>WhatsApp</title>
-
+    <style>
+        .hide {
+            display: none;
+        }
+    </style>
 
 </head>
 
@@ -77,19 +81,36 @@
             <div class="message-content" style="background-image: url('{{ asset('assets/images/background.png') }}');">
             </div>
 
-            <form id="MessageForm" method="POST" class="message-footer messageForm">
+            <div id="MessageForm" method="POST" class="message-footer messageForm">
                 <img id="emojiButton" src="{{ asset('assets/images/smile.svg') }}" alt="Emoji">
                 <img src="{{ asset('assets/images/paper-clip.svg') }}" id="fileButton" alt="Attach">
                 <input type="file" style="display: none" name="file" id="fileInput">
                 <textarea id="messageInput" name="" cols="30" rows="10"></textarea>
-                <button type="button" class="submit_btn" aria-label="Send Message">
 
-                    <img src="{{ asset('assets/images/icons/mic.svg') }}" class="mic_svg" alt="Mic Svg">
-                    <img src="{{ asset('assets/images/icons/stop.svg') }}" style="display: none;" class="stop_svg"
-                        alt="Stop Svg">
-                    <img src="{{ asset('assets/images/icons/send_2.svg') }}" class="send_svg" alt="Send Svg">
-                </button>
-            </form>
+                <div class="controls_container">
+                    <button class="delete-recording hide">
+                        <img src="{{ asset('assets/images/icons/delete.svg') }}" alt="Delete">
+                    </button>
+
+                    <audio class="recording-preview hide" controls
+                        controlsList="nodownload noplaybackrate novolume"></audio>
+
+                    <button class="start-recording hide">
+                        <img src="{{ asset('assets/images/icons/mic.svg') }}" alt="Record">
+                    </button>
+                    <button class="stop-recording hide">
+                        <img src="{{ asset('assets/images/icons/stop.svg') }}" alt="Stop">
+                    </button>
+                    <button class="resume-recording hide">
+                        <img src="{{ asset('assets/images/icons/resume.svg') }}" alt="Resume">
+                    </button>
+                    <button class="send_btn hide">
+                        <img src="{{ asset('assets/images/icons/send_2.svg') }}" alt="Send">
+                    </button>
+
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -109,11 +130,11 @@
 
             function toggleButton() {
                 if ($('#messageInput').val().trim() === "") {
-                    $('.mic_svg').show();
-                    $('.send_svg').hide();
+                    $('.start-recording').show();
+                    $('.send_btn').hide();
                 } else {
-                    $('.mic_svg').hide();
-                    $('.send_svg').show();
+                    $('.start-recording').hide();
+                    $('.send_btn').show();
                 }
             }
 
@@ -126,35 +147,66 @@
             let activeUsers = [];
             const unreadMessages = JSON.parse(localStorage.getItem('unreadMessages')) || {};
 
+            window.openChat = function openChat(id) {
+                selectedUserId = id;
+
+                let unreadMessages = JSON.parse(localStorage.getItem('unreadMessages')) || {};
+                unreadMessages[selectedUserId] = 0;
+                localStorage.setItem('unreadMessages', JSON.stringify(unreadMessages));
+
+                const userChat = $('.user-id-' + selectedUserId);
+                const badge = userChat.find('.unread-badge');
+                badge.hide();
+
+                page = 1;
+                fetchMessages(id, page)
+                    .then(({
+                        selectedUser,
+                        messages
+                    }) => {
+                        if (selectedUser) {
+                            $('.message-content').empty();
+                            $('.selected_user_name').text(selectedUser.name);
+                            updateSelectedUserStatus(selectedUser);
+                            displayMessages(messages.reverse(), false);
+                            scrollToBottom();
+
+                            $('.no-chat-selected').hide();
+                            $('.chat-view').show();
+                        }
+                    })
+                    .catch(error => console.error('Error fetching chat:', error));
+            };
 
             window.Echo.private(`message.${loginUserId}`)
                 .listen('MessageSent', (e) => {
 
                     markMessageAsDelivered(e.message_id);
-                    if (selectedUserId == e.receiver_id) {
+
+                    if (selectedUserId == e.sender_id) {
                         displayMessages(e);
                         scrollToBottom();
-
                     } else {
                         incrementUnreadCount(e.sender_id);
                     }
 
                     updateMessageInSidebar(e.receiver_id, e.sender_id, e.message, e.last_message_time, "text");
-
                 })
-
-
-                .listenForWhisper('typing', showTypingIndicator);
-
-            window.Echo.private(`message.${loginUserId}`)
+                .listenForWhisper('typing', showTypingIndicator)
+                .listenForWhisper('recording', showRecordingIndicator)
                 .listen('MessageDelivered', (event) => {
-                    updateMessageStatus(event.message_id, 'delivered');
-                });
-
-            window.Echo.private(`message.${loginUserId}`)
+                    try {
+                        updateMessageStatus(event.message_id, 'delivered');
+                    } catch (error) {
+                        console.error('Error handling MessageDelivered event:', error);
+                    }
+                })
                 .listen('MessageRead', (event) => {
-
-                    updateMessageStatus(event.message_id, 'read');
+                    try {
+                        updateMessageStatus(event.message_id, 'read');
+                    } catch (error) {
+                        console.error('Error handling MessageRead event:', error);
+                    }
                 });
 
             function incrementUnreadCount(senderId) {
@@ -184,8 +236,6 @@
                     }
                 }
             }
-
-
 
             const channel = window.Echo.join('chat-room')
                 .here(updateActiveUsers)
@@ -229,68 +279,52 @@
             }
 
             function renderUsers(users, onlineUsers) {
-    let usersHTML = '';
-    const unreadMessages = JSON.parse(localStorage.getItem('unreadMessages')) || {};
+                let usersHTML = '';
+                const unreadMessages = JSON.parse(localStorage.getItem('unreadMessages')) || {};
 
-    users.forEach(user => {
-        const isOnline = onlineUsers.some(u => u.id === user.id);
-        const statusClass = isOnline ? 'online' : 'offline';
-        const lastMessage = user.last_message || '';
-        const createdAt = user.last_message_time || '';
-        const type = user.last_message_type || '';
-        const duration = user.last_message_duration || '';  // Get the voice duration if it's a voice message
-        const lastSeen = !isOnline ? `Last seen: ${moment(user.last_seen).fromNow()}` : 'Online';
+                users.forEach(user => {
+                    const isOnline = onlineUsers.some(u => u.id === user.id);
+                    const statusClass = isOnline ? 'online' : 'offline';
+                    const lastMessage = user.last_message || '';
+                    const createdAt = user.last_message_time || '';
+                    const type = user.last_message_type || '';
+                    const duration = user.last_message_duration || '';
+                    const lastSeen = !isOnline ? `Last seen: ${moment(user.last_seen).fromNow()}` :
+                        'Online';
 
-        // Start building the user HTML structure
-        usersHTML += `
-            <div class="sidebar-chat user-id-${user.id}" onclick="openChat(${user.id})">
-                <span class="status-indicator ${statusClass}"></span>
-                <div class="chat-avatar">
-                    <img title="${lastSeen}" src="${user.avatar_url || '{{ asset('assets/images/avatar.png') }}'}" alt="Avatar">
-                </div>
-                <div class="chat-info">
-                    <h4 class="user_name">${user.name}</h4>
-                    <p class="message">
-        `;
-
-        // Check the message type and display accordingly
-        if (type === 'voice') {
-            // If it's a voice message, show the voice icon and duration
-            usersHTML += `
-                    <div class="voice-message">
-                        <img src="{{asset('assets/images/icons/mic.svg')}}" alt="Voice" class="voice-icon" />
-                        <span class="voice-duration">${duration}</span>
+                    usersHTML += `<div class="sidebar-chat user-id-${user.id}" onclick="openChat(${user.id})">
+                        <span class="status-indicator ${statusClass}"></span>
+                        <div class="chat-avatar">
+                            <img title="${lastSeen}" src="${user.avatar_url || '{{ asset('assets/images/avatar.png') }}'}" alt="Avatar">
+                        </div>
+                        <div class="chat-info">
+                            <h4 class="user_name">${user.name}</h4>
+                            <p class="message">`;
+                    if (type === 'voice') {
+                        usersHTML +=
+                            `<img src="{{ asset('assets/images/icons/mic.svg') }}" alt="Voice" class="voice-icon" /> ${duration}`;
+                    } else {
+                        usersHTML += lastMessage;
+                    }
+                    usersHTML += `</p>
                     </div>
-            `;
-        } else {
-            // Otherwise, just display the last text message
-            usersHTML += lastMessage;
-        }
+                    <div class="time">
+                        <p>${createdAt}</p>
+                    </div>`;
 
-        usersHTML += `
-                    </p>
-                </div>
-                <div class="time">
-                    <p>${createdAt}</p>
-                </div>
-        `;
+                    if (unreadMessages[user.id]) {
+                        const unreadCount = unreadMessages[user.id] > 99 ? '99+' : unreadMessages[user.id];
+                        usersHTML +=
+                            `<div class="unread-badge" style="display: block;">${unreadCount}</div>`;
+                    } else {
+                        usersHTML += `<div class="unread-badge" style="display: none;"></div>`;
+                    }
 
-        // Display unread message badge if there are unread messages for the user
-        if (unreadMessages[user.id]) {
-            const unreadCount = unreadMessages[user.id] > 99 ? '99+' : unreadMessages[user.id];
-            usersHTML += `<div class="unread-badge" style="display: block;">${unreadCount}</div>`;
-        } else {
-            usersHTML += `<div class="unread-badge" style="display: none;"></div>`;
-        }
+                    usersHTML += `</div>`;
+                });
 
-        usersHTML += `</div>`;
-    });
-
-    // Insert the generated HTML into the sidebar
-    $('.sidebar-chats').html(usersHTML);
-}
-
-
+                $('.sidebar-chats').html(usersHTML);
+            }
 
             function fetchMessages(userId, page = 1) {
                 isFetchingMessages = true;
@@ -303,74 +337,42 @@
                 });
             }
 
-            window.openChat = function openChat(id) {
-                selectedUserId = id;
 
-                let unreadMessages = JSON.parse(localStorage.getItem('unreadMessages')) || {};
-                unreadMessages[selectedUserId] = 0;
-                localStorage.setItem('unreadMessages', JSON.stringify(unreadMessages));
+            function updateMessageInSidebar(receiver_id, sender_id, message, message_time, type, voiceDuration =
+                null) {
+                console.log('====================================');
+                console.log(voiceDuration, "voiceDuration");
+                console.log('====================================');
+                var receiverDiv = $('.user-id-' + receiver_id);
+                var senderDiv = $('.user-id-' + sender_id);
 
-                const userChat = $('.user-id-' + selectedUserId);
-                const badge = userChat.find('.unread-badge');
-                badge.hide();
+                if (receiverDiv.length) {
+                    if (type === "voice" && voiceDuration) {
+                        receiverDiv.find('.message').html(
+                            `<img src="{{ asset('assets/images/icons/mic.svg') }}" alt="Voice" class="voice-icon" />${voiceDuration}`
+                        );
+                    } else {
+                        receiverDiv.find('.message').text(message);
+                    }
 
-                page = 1;
-                fetchMessages(id, page)
-                    .then(({
-                        selectedUser,
-                        messages
-                    }) => {
-                        if (selectedUser) {
-                            $('.message-content').empty();
-                            $('.selected_user_name').text(selectedUser.name);
-                            updateSelectedUserStatus(selectedUser);
-                            displayMessages(messages.reverse(), false);
-                            scrollToBottom();
+                    receiverDiv.find('.time p').text(message_time);
+                }
 
-                            $('.no-chat-selected').hide();
-                            $('.chat-view').show();
+                if (senderDiv.length) {
+                    if (type === "voice" && voiceDuration) {
+                        if (senderDiv.length) {
+                            senderDiv.find('.message').html(
+                                `<img src="{{ asset('assets/images/icons/mic.svg') }}" alt="Voice" class="voice-icon" />${voiceDuration}`
+                            );
+
+                        } else {
+                            senderDiv.find('.message').text(message);
                         }
-                    })
-                    .catch(error => console.error('Error fetching chat:', error));
-            };
+                        senderDiv.find('.time p').text(message_time);
+                    }
+                }
+            }
 
-
-            function updateMessageInSidebar(receiver_id, sender_id, message, message_time, type, voiceDuration = null) {
-    var receiverDiv = $('.user-id-' + receiver_id);
-    var senderDiv = $('.user-id-' + sender_id);
-
-    // Set the message for the receiver
-    if (receiverDiv.length) {
-        if (type === "voice" && voiceDuration) {
-            // If it's a voice message, add the voice icon and duration
-            receiverDiv.find('.message').html(`
-                <div class="voice-message">
-                    <img src="{{asset('assets/images/icons/mic.svg')}}" alt="Voice" class="voice-icon" />
-                    <span class="voice-duration">${voiceDuration}</span>
-                </div>
-            `);
-        } else {
-            receiverDiv.find('.message').text(message); // Text message
-        }
-        receiverDiv.find('.time p').text(message_time); // Update message time
-    }
-
-    // Set the message for the sender
-    if (senderDiv.length) {
-        if (type === "voice" && voiceDuration) {
-            // If it's a voice message, add the voice icon and duration
-            senderDiv.find('.message').html(`
-                <div class="voice-message">
-                    <img src="{{asset('assets/images/icons/mic.svg')}}" alt="Voice" class="voice-icon" />
-                    <span class="voice-duration">${voiceDuration}</span>
-                </div>
-            `);
-        } else {
-            senderDiv.find('.message').text(message); // Text message
-        }
-        senderDiv.find('.time p').text(message_time); // Update message time
-    }
-}
 
             function displayMessages(messages, prepend = false) {
 
@@ -393,9 +395,7 @@
                     let receiptClass = message.read_at ? "read" : (message.delivered_at ? "delivered" :
                         "send");
 
-                    // Handle different message types (text vs voice)
                     if (message.type === 'voice') {
-                        // Display voice message with a player
                         messageHTML += `<p data-message-id="${message.message_id}" class="chat-message ${senderClass}">
                                 <audio controls>
                                     <source src="${message.message}" type="audio/wav">
@@ -404,7 +404,6 @@
                                 ${senderClass === 'chat-sent' ? `<span class="message-status ${receiptClass}">${receipt}</span>` : ''}
                             </p>`;
                     } else {
-                        // Display text message
                         messageHTML += `<p data-message-id="${message.message_id}" class="chat-message ${senderClass}">
                                 ${message.message}
                                 <span class="chat-timestamp">${message.created_at}</span>
@@ -469,6 +468,22 @@
                     $('.typing-indicator').parent().remove();
                 }, 1000);
             }
+
+            function showRecordingIndicator(e) {
+                if (e.recording) {
+                    if ($('.recording-indicator').length === 0) {
+                        const recordingIndicatorHtml = `
+                <p class="chat-message chat-received">
+                    <span class="recording-indicator">🎤 Recording...</span>
+                </p>`;
+                        $('.message-content').append(recordingIndicatorHtml);
+                        scrollToBottom();
+                    }
+                } else {
+                    $('.recording-indicator').closest('p.chat-message').remove();
+                }
+            }
+
 
             $('#messageInput').on('input', function() {
                 if (!selectedUserId) return;
@@ -548,27 +563,57 @@
                     statusSpan.classList.add('read');
                 }
             }
-
             let isRecording = false;
             let mediaRecorder;
             let audioChunks = [];
+            let audioBlob = null;
+            let isPaused = false;
+            let recordingTime = 0;
 
-            $('.mic_svg').on('click', function(e) {
+            $('.start-recording').on('click', function(e) {
                 e.preventDefault();
                 if (isRecording) return;
                 startRecording();
+                $('.start-recording').hide();
+                $('.stop-recording').show();
+                $('.delete-recording').show();
+                $('.send_btn').show();
+                $('.resume-recording').hide();
             });
 
-            $('.send_svg').on('click', function(e) {
+            $('.stop-recording').on('click', function(e) {
+                e.preventDefault();
+                stopRecording();
+                $('.stop-recording').hide();
+                $('.start-recording').hide();
+                $('.resume-recording').show();
+                $('.send_btn').show();
+                $('.recording-preview').show();
+            });
+
+            $('.resume-recording').on('click', function(e) {
+                e.preventDefault();
+                resumeRecording();
+                $('.resume-recording').hide();
+                $('.stop-recording').show();
+            });
+
+            $('.delete-recording').on('click', function(e) {
+                e.preventDefault();
+                deleteRecording();
+                $('.delete-recording, .resume-recording, .stop-recording, .send_btn').hide();
+                $('.start-recording').show();
+            });
+
+            $('.send_btn').on('click', function(e) {
                 e.preventDefault();
                 $('.submit_btn').prop('disabled', true);
-                $('.typing-indicator').parent().remove();
 
-                var messageType = "";
-                var messageData = null;
+                let messageType = "";
+                let messageData = null;
 
-                var messageText = $('#messageInput').val();
-                var imageFile = $('#fileInput')[0].files[0];
+                let messageText = $('#messageInput').val();
+                let imageFile = $('#fileInput')[0].files[0];
 
                 if (messageText && !imageFile && !audioChunks.length) {
                     messageType = "text";
@@ -576,9 +621,12 @@
                 } else if (imageFile && !messageText && !audioChunks.length) {
                     messageType = "image";
                     messageData = imageFile;
+                } else if (audioChunks.length > 0 || audioBlob) {
+                    messageType = "voice";
+                    messageData = audioBlob;
                 }
 
-                var formData = new FormData();
+                let formData = new FormData();
                 formData.append('receiver_id', selectedUserId);
                 formData.append('type', messageType);
                 formData.append('message', messageData);
@@ -589,7 +637,8 @@
 
                 if (isRecording) {
                     stopRecording(function(audioBlob, duration) {
-                        var voiceFormData = new FormData();
+
+                        let voiceFormData = new FormData();
                         voiceFormData.append('message', audioBlob);
                         voiceFormData.append('voice_duration', duration);
                         voiceFormData.append('type', 'voice');
@@ -604,12 +653,9 @@
 
             function startRecording() {
                 isRecording = true;
+                isPaused = false;
                 audioChunks = [];
-
-                $('.mic_svg').hide();
-                $('.send_svg').show();
-                $('.stop_svg').show();
-                $('.recording-indicator').text('Recording...');
+                recordingTime = 0;
 
                 navigator.mediaDevices.getUserMedia({
                         audio: true
@@ -623,52 +669,108 @@
                     })
                     .catch(err => {
                         console.error('Error accessing microphone:', err);
-                        alert('Microphone access denied! Please check your device settings.');
-                        stopRecording(null);
+                        alert('Microphone access denied!');
                     });
+
+                window.Echo.private(`message.${selectedUserId}`).whisper('recording', {
+                    sender_id: loginUserId,
+                    recording: true
+                });
             }
 
             function stopRecording(callback) {
-    isRecording = false;
+                isRecording = false;
+                isPaused = true;
 
-    if (mediaRecorder) {
-        mediaRecorder.stop();
-        mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                if (mediaRecorder) {
+                    // Define the onstop event **before** stopping the mediaRecorder
+                    mediaRecorder.onstop = () => {
+                        if (audioChunks.length === 0) {
+                            console.error("No audio data recorded.");
+                            if (callback && typeof callback === "function") {
+                                callback(null, "00:00"); // Avoid sending null values
+                            }
+                            return;
+                        }
 
-            const reader = new FileReader();
-            reader.onloadend = function() {
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                audioContext.decodeAudioData(reader.result, function(buffer) {
-                    const duration = buffer.duration; // Duration in seconds
-                    console.log('Audio Duration:', duration); // Debugging log
-                    const formattedDuration = formatDuration(duration);
+                        audioBlob = new Blob(audioChunks, {
+                            type: "audio/wav"
+                        });
 
-                    // Pass audioBlob and formatted duration to callback
-                    callback(audioBlob, formattedDuration);
-                }, function(e) {
-                    console.error('Error decoding audio data:', e);
-                    callback(audioBlob, '00:00'); // Return default value if error occurs
+                        const reader = new FileReader();
+                        reader.onloadend = function() {
+                            let audioContext;
+                            try {
+                                audioContext = new(window.AudioContext || window.webkitAudioContext)();
+                            } catch (e) {
+                                console.error("AudioContext is not supported in this browser.");
+                                if (callback && typeof callback === "function") {
+                                    callback(audioBlob, "00:00");
+                                }
+                                return;
+                            }
+
+                            audioContext.decodeAudioData(reader.result)
+                                .then(buffer => {
+                                    const duration = buffer.duration;
+                                    const formattedDuration = formatDuration(duration);
+                                    console.log("Decoded duration:", formattedDuration);
+
+                                    if (callback && typeof callback === "function") {
+                                        callback(audioBlob, formattedDuration);
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error("Error decoding audio data:", error);
+                                    if (callback && typeof callback === "function") {
+                                        callback(audioBlob, "00:00");
+                                    }
+                                });
+                        };
+
+                        reader.readAsArrayBuffer(audioBlob);
+                    };
+
+                    mediaRecorder.stop();
+                    
+                }
+
+                if (mediaRecorder && mediaRecorder.stream) {
+                    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                }
+
+                window.Echo.private(`message.${selectedUserId}`).whisper("recording", {
+                    sender_id: loginUserId,
+                    recording: false
                 });
-            };
-
-            reader.readAsArrayBuffer(audioBlob);
-        };
-    }
-
-    // Reset UI
-    $('.mic_svg').show();
-    $('.send_svg').hide();
-    $('.stop_svg').hide();
-    $('.recording-indicator').text(''); // Clear recording status
-}
+            }
 
 
-            // Format duration in seconds to HH:MM:SS
             function formatDuration(seconds) {
                 const minutes = Math.floor(seconds / 60);
                 const remainingSeconds = Math.floor(seconds % 60);
                 return `${minutes < 10 ? '0' : ''}${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+            }
+
+            function resumeRecording() {
+                if (!isRecording && isPaused) {
+                    startRecording();
+                }
+            }
+
+            function deleteRecording() {
+                isRecording = false;
+                isPaused = false;
+                audioChunks = [];
+                audioBlob = null;
+
+                if (mediaRecorder && mediaRecorder.stream) {
+                    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                }
+
+                $('.recording-preview').hide().attr('src', '');
+                $('.start-recording').show();
+                $('.send_btn, .stop-recording, .resume-recording, .delete-recording').hide();
             }
 
             function sendMessage(formData) {
@@ -678,26 +780,28 @@
                     data: formData,
                     processData: false,
                     contentType: false,
-                    beforeSend: function() {
-                        $('.send_svg').attr('disabled', true);
-                    },
-                    success: function(e) {
-                        console.log(e, "Eeeeee");
-
+                    success: function(r) {
                         $('#messageInput').val('');
-                        displayMessages(e.message);
+                        $('.recording-preview').hide();
+                        displayMessages(r.message);
                         scrollToBottom();
-                        updateMessageInSidebar(e.message.receiver_id, e.message.sender_id, e.message
-                            .message, e.message.created_at, e.message.type, e.message.voice_duration
-                            );
+                        toggleButton();
+                        updateMessageInSidebar(r.message.receiver_id, r.message.sender_id,
+                            r.message.message, r.message.created_at, r.message.type,
+                            r.message.voice_duration);
                         $('.submit_btn').prop('disabled', false);
                     },
                     error: function(xhr) {
-                        console.error('Error sending message:', xhr.eText);
+                        console.error('Error sending message:', xhr.responseText);
                         alert('Error sending message. Please try again.');
-                        $('.send_svg').attr('disabled', false);
                     }
                 });
+
+                $('.send_btn').hide();
+                $('.delete-recording').hide();
+                $('.start-recording').show();
+                $('.resume-recording').hide();
+                $('.stop-recording').hide();
             }
         });
     </script>

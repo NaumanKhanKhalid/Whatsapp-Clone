@@ -412,6 +412,7 @@ button {
     font-weight: bold;
     display: none;
 }
+
 .no-chat-selected {
     text-align: center;
     margin-top: 50px;
@@ -429,4 +430,30 @@ button {
     font-size: 16px;
     color: #6c6c6c;
     margin-bottom: 30px;
+}
+
+.message {
+    display: flex;
+    align-items: center;
+}
+
+.voice-icon {
+    width: 15px;
+    text-align: center;
+    margin-right: 2px;
+}
+
+.stop_Svg {
+    height: 27px !important;
+    width: 30px !important;
+    margin-bottom: 2px;
+}
+
+.submit_btn {
+    display: flex;
+    align-items: center;
+}
+.controls_container{
+    display: flex;
+    align-items: center;
 }
